@@ -4,6 +4,8 @@
 
 pub mod error;
 pub mod feed;
+#[cfg(feature = "fetch")]
+pub(crate) mod fetch;
 pub mod parse;
 pub mod pricing;
 

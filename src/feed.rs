@@ -147,6 +147,19 @@ impl Pricing {
     pub fn models(&self) -> impl Iterator<Item = (&String, &ModelPricing)> {
         self.pricing.iter()
     }
+
+    #[cfg(feature = "fetch")]
+    pub fn auto(app_name: &str) -> Result<Self, PricingError> {
+        crate::fetch::auto(app_name)
+    }
+
+    #[cfg(feature = "fetch")]
+    pub fn refresh(&mut self) -> Result<(), PricingError> {
+        let cfg = crate::fetch::FetchConfig::from_env();
+        let refreshed = crate::fetch::refresh(&cfg)?;
+        *self = refreshed;
+        Ok(())
+    }
 }
 
 pub fn user_override_path(app_name: &str) -> Option<PathBuf> {
