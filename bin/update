@@ -11,13 +11,13 @@
 
 set -euo pipefail
 
-# NOTE: This URL is intentionally duplicated in src/update.rs (Rust runtime).
-# bin/update is a dev-time bash script; src/update.rs is the compiled binary's --check.
-# Sharing across bash/Rust is not worth the complexity for a single URL.
 PRICING_URL="https://platform.claude.com/docs/en/about-claude/pricing.md"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PRICING_FILE="$REPO_ROOT/data/pricing.json"
 HASH_FILE="$REPO_ROOT/data/pricing-page.sha256"
+SCHEMA_VERSION=1
+MIN_LIBRARY_VERSION="0.1.0"
+DATA_VERSION="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 DRY_RUN=false
 if [[ "${1:-}" == "--dry" ]]; then
@@ -183,7 +183,11 @@ echo "Generating data/pricing.yml..."
 # Build the YAML output from the parsed data.
 # First pass: collect base pricing for each model.
 # Second pass: merge long context pricing.
-JSON_OUTPUT=$(echo "$PARSED" | awk '
+JSON_OUTPUT=$(echo "$PARSED" | awk \
+    -v schema_version="$SCHEMA_VERSION" \
+    -v data_version="$DATA_VERSION" \
+    -v min_library_version="$MIN_LIBRARY_VERSION" \
+    '
 BEGIN {
     model_count = 0
 }
@@ -211,6 +215,9 @@ $1 == "LONG" {
 
 END {
     print "{"
+    printf "  \"schema_version\": %s,\n", schema_version
+    printf "  \"data_version\": \"%s\",\n", data_version
+    printf "  \"min_library_version\": \"%s\",\n", min_library_version
     print "  \"pricing\": {"
     for (i = 0; i < model_count; i++) {
         id = models[i]
