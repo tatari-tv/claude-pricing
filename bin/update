@@ -198,32 +198,64 @@ if shifts:
 PYEOF
 fi
 
-# -- Wrap with v1 envelope ----------------------------------------------
-jq \
-    --argjson schema_version "$SCHEMA_VERSION" \
-    --arg data_version "$DATA_VERSION" \
-    --arg min_library_version "$MIN_LIBRARY_VERSION" \
-    '{schema_version: $schema_version, data_version: $data_version, min_library_version: $min_library_version, pricing: .}' \
-    "$PRICING_MAP" > "$NEW_PRICING_FILE"
+# -- Detect whether the pricing map actually changed --------------------
+# We always run, but we only rewrite data/pricing.json (and bump
+# data_version) when the new pricing map differs from what is already
+# committed. Without this guard, every cron run would replace the file
+# with the same prices and a fresh data_version timestamp, causing the
+# workflow to open an empty PR every day. data/pricing-page.sha256 is
+# always rewritten because it is a deterministic hash of the page bytes,
+# so it never produces a spurious diff.
+PRICING_CHANGED=true
+if [[ -f "$PRICING_FILE" ]]; then
+    if python3 - "$PRICING_MAP" "$PRICING_FILE" <<'PYEOF'
+import json
+import sys
+
+new = json.load(open(sys.argv[1]))
+old_envelope = json.load(open(sys.argv[2]))
+old = old_envelope.get("pricing", old_envelope)
+sys.exit(0 if new == old else 1)
+PYEOF
+    then
+        PRICING_CHANGED=false
+    fi
+fi
+
+# -- Wrap with v1 envelope (only when prices changed) -------------------
+if [[ "$PRICING_CHANGED" == true ]]; then
+    jq \
+        --argjson schema_version "$SCHEMA_VERSION" \
+        --arg data_version "$DATA_VERSION" \
+        --arg min_library_version "$MIN_LIBRARY_VERSION" \
+        '{schema_version: $schema_version, data_version: $data_version, min_library_version: $min_library_version, pricing: .}' \
+        "$PRICING_MAP" > "$NEW_PRICING_FILE"
+fi
 
 PAGE_HASH="$(sha256sum "$PAGE_FILE" | cut -d' ' -f1)"
 
 # -- Dry run short-circuit ----------------------------------------------
 if [[ "$DRY_RUN" == true ]]; then
     echo ""
-    echo "=== Dry run - would write: ==="
-    cat "$NEW_PRICING_FILE"
+    if [[ "$PRICING_CHANGED" == true ]]; then
+        echo "=== Dry run - would write data/pricing.json: ==="
+        cat "$NEW_PRICING_FILE"
+    else
+        echo "=== Dry run - pricing unchanged, would NOT rewrite data/pricing.json ==="
+    fi
     echo ""
     echo "SHA-256: $PAGE_HASH"
     exit 0
 fi
 
 # -- Write -------------------------------------------------------------
-mv "$NEW_PRICING_FILE" "$PRICING_FILE"
+if [[ "$PRICING_CHANGED" == true ]]; then
+    mv "$NEW_PRICING_FILE" "$PRICING_FILE"
+    echo "Wrote $PRICING_FILE (data_version=$DATA_VERSION)"
+else
+    echo "Pricing unchanged - left $PRICING_FILE intact"
+fi
 echo "$PAGE_HASH" > "$HASH_FILE"
-
-echo ""
-echo "Wrote $PRICING_FILE"
 echo "Wrote $HASH_FILE"
 
 if git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
