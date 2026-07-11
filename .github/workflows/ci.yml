@@ -20,6 +20,9 @@ on:
       - 'data/**'
       - '**/*.md'
 
+permissions:
+  contents: read
+
 jobs:
   ci:
     uses: tatari-tv/github-actions-public/.github/workflows/rust-ci.yml@v1
